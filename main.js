@@ -13,12 +13,17 @@
  * limitations under the License.
  */
 
+'use strict';
+
 /*
 * namespace for box api specific controls
 */
 var box = {};
 
-'use strict';
+/* Intializations */
+box.viewedPages = {};
+box.numPagesViewed = 0;
+box.totalPages = 0;
 
 if (!PDFJS.PDFViewer || !PDFJS.getDocument) {
   alert('Please build the pdfjs-dist library using\n' +
@@ -85,6 +90,7 @@ PDFJS.getDocument(box.moduleUrl).then(function (pdfDocument) {
 
   pdfLinkService.setDocument(pdfDocument, null);
   box.ACAPInterface.setNumPagesFromEvent(pdfDocument);
+  box.totalPages = pdfDocument.numPages;
 });
 
 
@@ -110,21 +116,20 @@ box.onBoxDocumentViewable = function() {
   var evt = document.createEvent("Event");
   evt.initEvent("moduleReadyEvent", true, true);
   evt.Data = box.ACAPInterface;
-  box.viewer = pdfViewer;
 
   /* after this call reporting options are set*/
   if (window.parent) {
     window.parent.dispatchEvent(evt);
   }
 
-
+  pdfViewer.type = "ready";
   box.updatePagesViewed(pdfViewer);
   box.updateCompletionIfCriteriaMet(pdfViewer);
   box.updateSuccessIfCriteriaMet(pdfViewer);
   box.triggerStartedEvent(pdfViewer);
 
   box.getDataFromAcapPlayer();
-
+  box.viewer = pdfViewer;
 }
 
 
@@ -132,8 +137,6 @@ box.onBoxDocumentViewable = function() {
 
 
 /********************************** tracking data**************************/
-box.viewedPages = {};
-box.numPagesViewed = 0;
 box.updatePagesViewed = function(event) {
     var page = event.currentPageNumber ? event.currentPageNumber : event.pageNumber;
     if(!box.viewedPages[page]) {
@@ -201,6 +204,7 @@ box.setDataToAcapPlayer = function(currentSessionData){
     eventObject.Data = {};
     eventObject.Data.pagesViewedHash = box.viewedPages;
     eventObject.Data.numPagesViewed = box.numPagesViewed;
+    eventObject.Data.numPages = box.totalPages;
     box.EventEmitter.customEventTrigger(eventObject);
 };
 
@@ -214,7 +218,7 @@ box.updateCompletionIfCriteriaMet = function (event) {
             }
             if(box.completionCriteria.criteria === "onPercentageView") {
                 if(box.completionCriteria.viewPercent && box.numPagesViewed) {
-                    if(((box.numPagesViewed/event.data.numPages) * 100) >= box.completionCriteria.viewPercent) {
+                    if(((box.numPagesViewed/box.totalPages) * 100) >= box.completionCriteria.viewPercent) {
                         box.triggerCompletionEvent();
                     }
                 }
@@ -239,7 +243,7 @@ box.updateSuccessIfCriteriaMet = function (event) {
                 }
                 if(box.successCriteria.criteria === "onPercentageView") {
                     if(box.successCriteria.viewPercent && box.numPagesViewed) {
-                        if(((box.numPagesViewed/event.data.numPages) * 100) >= box.successCriteria.viewPercent) {
+                        if(((box.numPagesViewed/box.totalPages) * 100) >= box.successCriteria.viewPercent) {
                             box.triggerPassedEvent();
                         }
                     }
@@ -287,7 +291,7 @@ box.ACAPEventEmitterClass.prototype.trigger = function(event) {
             event.Name = "CAPI_SLIDEEXIT";
             event.data = {};
             event.data.page = event.pageNumber;
-            event.data.numPages = box.ACAPInterface.getDurationInPages();
+            event.data.numPages = box.totalPages;
             try {
                 box.updatePagesViewed(event);
                 box.updateSuccessIfCriteriaMet(event);
@@ -339,6 +343,11 @@ box.triggerPassedEvent = function(){
 };
 
 box.triggerSlideExitEvent = function(event){
+    if (!event.data) {
+      event.data = {};
+      event.data.page = box.ACAPInterface.getCurrentPage();
+      event.data.numPages = box.ACAPInterface.getDurationInPages();
+    }
     event.Name = "CAPI_SLIDEEXIT";
     box.EventEmitter.customEventTrigger(event);
 };
@@ -358,7 +367,7 @@ box.ACAPInterface = new (function(){
     /*private properties */
 
     var currentPage;
-    var numPages;
+    var numOfPages;
 
     /* public getters and setters*/
 
@@ -367,11 +376,13 @@ box.ACAPInterface = new (function(){
     },
 
     this.getDurationInPages = function () {
-        return numPages;
+        return numOfPages;
     },
 
     this.setNumPagesFromEvent = function(event) {
-        numPages = event.numPages;
+      if(event && event.numPages) {
+        numOfPages = event.numPages;
+      }
     },
 
     this.updateCurrentPageFromEvent = function (event) {
@@ -408,7 +419,7 @@ box.ACAPInterface = new (function(){
     },
 
     this.scrollToNext = function() {
-        if (currentPage < numPages) {
+        if (currentPage < numOfPages) {
           currentPage++;
           pdfViewer.currentPageNumber = currentPage;
         }
